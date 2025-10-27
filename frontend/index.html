@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strava+Coach - Générateur de Parcours</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar - Formulaire -->
+            <div class="col-md-4 col-lg-3 sidebar">
+                <div class="p-4">
+                    <h1 class="h3 mb-4">
+                        <svg width="24" height="24" fill="currentColor" class="bi bi-geo-alt-fill me-2" viewBox="0 0 16 16">
+                            <path d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10zm0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/>
+                        </svg>
+                        Strava+Coach
+                    </h1>
+                    <p class="text-muted">Générateur de parcours d'entraînement</p>
+
+                    <form id="routeForm">
+                        <!-- Point de départ -->
+                        <div class="mb-3">
+                            <label for="startLocation" class="form-label">Point de départ</label>
+                            <input
+                                type="text"
+                                class="form-control"
+                                id="startLocation"
+                                placeholder="ex: Place de la République, Paris"
+                                required
+                            >
+                            <div class="form-text">Adresse ou nom de lieu</div>
+                        </div>
+
+                        <!-- Distance -->
+                        <div class="mb-3">
+                            <label for="distance" class="form-label">Distance (km)</label>
+                            <input
+                                type="number"
+                                class="form-control"
+                                id="distance"
+                                min="1"
+                                max="100"
+                                step="0.5"
+                                value="10"
+                                required
+                            >
+                            <div class="form-text">Entre 1 et 100 km</div>
+                        </div>
+
+                        <!-- Type d'entraînement -->
+                        <div class="mb-3">
+                            <label for="trainingType" class="form-label">Type d'entraînement</label>
+                            <select class="form-select" id="trainingType">
+                                <option value="endurance" selected>Endurance</option>
+                                <option value="fractionne">Fractionné</option>
+                                <option value="tempo">Tempo</option>
+                                <option value="recuperation">Récupération</option>
+                            </select>
+                        </div>
+
+                        <!-- Dénivelé -->
+                        <div class="mb-3">
+                            <label for="elevation" class="form-label">Dénivelé souhaité</label>
+                            <select class="form-select" id="elevation">
+                                <option value="plat" selected>Plat</option>
+                                <option value="vallonne">Vallonné</option>
+                                <option value="montagneux">Montagneux</option>
+                            </select>
+                        </div>
+
+                        <!-- Préférences -->
+                        <div class="mb-3">
+                            <label class="form-label">Préférences</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="avoidBusyRoads" checked>
+                                <label class="form-check-label" for="avoidBusyRoads">
+                                    Éviter les routes passantes
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="preferParks" checked>
+                                <label class="form-check-label" for="preferParks">
+                                    Privilégier parcs/sentiers
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Bouton Générer -->
+                        <button type="submit" class="btn btn-primary w-100 mb-3" id="generateBtn">
+                            <span id="btnText">Générer le parcours</span>
+                            <span id="btnSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status">
+                                <span class="visually-hidden">Chargement...</span>
+                            </span>
+                        </button>
+
+                        <!-- Bouton Export GPX -->
+                        <button type="button" class="btn btn-outline-secondary w-100 d-none" id="exportBtn">
+                            <svg width="16" height="16" fill="currentColor" class="bi bi-download me-2" viewBox="0 0 16 16">
+                                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                                <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+                            </svg>
+                            Exporter GPX
+                        </button>
+                    </form>
+
+                    <!-- Métriques -->
+                    <div id="metrics" class="mt-4 d-none">
+                        <h5 class="mb-3">Métriques du parcours</h5>
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="mb-2">
+                                    <strong>Distance:</strong>
+                                    <span id="metricDistance">-</span> km
+                                </div>
+                                <div class="mb-2">
+                                    <strong>Dénivelé positif:</strong>
+                                    <span id="metricElevGain">-</span> m
+                                </div>
+                                <div class="mb-2">
+                                    <strong>Dénivelé négatif:</strong>
+                                    <span id="metricElevLoss">-</span> m
+                                </div>
+                                <div>
+                                    <strong>Durée estimée:</strong>
+                                    <span id="metricDuration">-</span> min
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert alert-info mt-3" role="alert">
+                            <small id="startAddressInfo">-</small>
+                        </div>
+                    </div>
+
+                    <!-- Erreurs -->
+                    <div id="errorAlert" class="alert alert-danger mt-3 d-none" role="alert">
+                        <strong>Erreur:</strong> <span id="errorMessage"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Carte -->
+            <div class="col-md-8 col-lg-9 p-0">
+                <div id="map"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Custom JS -->
+    <script src="/static/app.js"></script>
+</body>
+</html>

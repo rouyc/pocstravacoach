@@ -1,0 +1,138 @@
+/* Style global */
+body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+.container-fluid {
+    height: 100vh;
+    padding: 0;
+}
+
+.row {
+    height: 100%;
+    margin: 0;
+}
+
+/* Sidebar */
+.sidebar {
+    height: 100vh;
+    overflow-y: auto;
+    background-color: #f8f9fa;
+    border-right: 1px solid #dee2e6;
+    box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+}
+
+.sidebar h1 {
+    color: #fc5200;
+    font-weight: 700;
+}
+
+/* Carte */
+#map {
+    height: 100vh;
+    width: 100%;
+}
+
+/* Formulaire */
+.form-label {
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 0.5rem;
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: #fc5200;
+    box-shadow: 0 0 0 0.2rem rgba(252, 82, 0, 0.25);
+}
+
+/* Boutons */
+.btn-primary {
+    background-color: #fc5200;
+    border-color: #fc5200;
+}
+
+.btn-primary:hover {
+    background-color: #e04a00;
+    border-color: #e04a00;
+}
+
+.btn-primary:focus {
+    box-shadow: 0 0 0 0.2rem rgba(252, 82, 0, 0.5);
+}
+
+/* Métriques */
+.card {
+    border: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.card-body {
+    font-size: 0.9rem;
+}
+
+/* Alertes */
+.alert-info {
+    background-color: #e7f3ff;
+    border-color: #b3d9ff;
+    color: #004085;
+    font-size: 0.85rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .sidebar {
+        height: auto;
+        max-height: 50vh;
+    }
+
+    #map {
+        height: 50vh;
+    }
+}
+
+/* Animation du spinner */
+@keyframes spinner-border {
+    to { transform: rotate(360deg); }
+}
+
+.spinner-border {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    vertical-align: text-bottom;
+    border: 0.15em solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spinner-border 0.75s linear infinite;
+}
+
+/* Popup de la carte */
+.leaflet-popup-content {
+    margin: 10px;
+    font-size: 0.9rem;
+}
+
+.leaflet-popup-content-wrapper {
+    border-radius: 8px;
+}
+
+/* Marker personnalisé */
+.start-marker {
+    background-color: #28a745;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+}
+
+/* Couleur de la route */
+.route-line {
+    stroke: #fc5200;
+    stroke-width: 4;
+    stroke-opacity: 0.8;
+}

@@ -1,5 +1,6 @@
 // Configuration
-const API_BASE_URL = 'http://localhost:8000';
+// Utiliser l'URL relative pour que ça fonctionne aussi bien en local qu'en production
+const API_BASE_URL = window.location.origin;
 
 // Variables globales
 let map;

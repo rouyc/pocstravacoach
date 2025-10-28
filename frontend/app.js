@@ -1,6 +1,7 @@
 // Configuration
 // Utiliser l'URL relative pour que ça fonctionne aussi bien en local qu'en production
 const API_BASE_URL = window.location.origin;
+console.log('API Base URL configurée:', API_BASE_URL);
 
 // Variables globales
 let map;
@@ -115,8 +116,13 @@ async function generateRoute(event) {
     };
 
     try {
+        // Debug: afficher l'URL utilisée
+        const apiUrl = `${API_BASE_URL}/api/generate-route`;
+        console.log('API URL:', apiUrl);
+        console.log('Form Data:', formData);
+
         // Appeler l'API
-        const response = await fetch(`${API_BASE_URL}/api/generate-route`, {
+        const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'

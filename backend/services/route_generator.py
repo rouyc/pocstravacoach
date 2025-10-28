@@ -1,6 +1,7 @@
 import httpx
 import gpxpy
 import gpxpy.gpx
+import logging
 from typing import List, Tuple, Optional
 from datetime import datetime
 
@@ -12,7 +13,10 @@ from utils.geo_helpers import (
     coordinates_to_geojson
 )
 from services.elevation import ElevationService
-from models import RouteRequest, ElevationPreference
+from models import RouteRequest, ElevationPreference, RouteType
+
+# Configuration du logger
+logger = logging.getLogger(__name__)
 
 
 class RouteGenerator:
@@ -40,27 +44,40 @@ class RouteGenerator:
         Returns:
             Tuple (coordonnées, métriques, gpx)
         """
-        # Pour ce POC, on utilise une approche "aller-retour"
-        # On génère un point de destination puis on fait un aller-retour
-
-        # Calculer la distance pour l'aller (la moitié de la distance totale)
-        one_way_distance = request.distance_km / 2
-
         # Générer plusieurs candidats de parcours dans différentes directions
         best_route = None
         best_score = float('inf')
 
-        # Essayer 8 directions différentes (tous les 45 degrés)
-        for bearing in range(0, 360, 45):
-            route = await self._generate_out_and_back_route(
-                start_lat, start_lon, one_way_distance, bearing, request
-            )
+        # Choisir la méthode de génération selon le type de parcours
+        if request.route_type == RouteType.LOOP:
+            logger.info("Génération d'un parcours en boucle")
+            # Essayer 8 directions différentes pour les boucles
+            for bearing in range(0, 360, 45):
+                route = await self._generate_loop_route(
+                    start_lat, start_lon, request.distance_km, bearing, request
+                )
 
-            if route:
-                score = await self._score_route(route, request)
-                if score < best_score:
-                    best_score = score
-                    best_route = route
+                if route:
+                    score = await self._score_route(route, request)
+                    if score < best_score:
+                        best_score = score
+                        best_route = route
+        else:  # OUT_AND_BACK ou BOTH (pour l'instant on traite BOTH comme OUT_AND_BACK)
+            logger.info("Génération d'un parcours aller-retour")
+            # Calculer la distance pour l'aller (la moitié de la distance totale)
+            one_way_distance = request.distance_km / 2
+
+            # Essayer 8 directions différentes
+            for bearing in range(0, 360, 45):
+                route = await self._generate_out_and_back_route(
+                    start_lat, start_lon, one_way_distance, bearing, request
+                )
+
+                if route:
+                    score = await self._score_route(route, request)
+                    if score < best_score:
+                        best_score = score
+                        best_route = route
 
         if not best_route:
             # Fallback: route simple en ligne droite
@@ -79,6 +96,129 @@ class RouteGenerator:
 
         return best_route, metrics, gpx
 
+    async def _generate_loop_route(
+        self,
+        start_lat: float,
+        start_lon: float,
+        total_distance: float,
+        initial_bearing: float,
+        request: RouteRequest
+    ) -> Optional[List[Tuple[float, float]]]:
+        """
+        Génère un parcours en boucle avec ajustement de distance
+
+        Stratégie: Créer 3 points intermédiaires formant un triangle/quadrilatère
+        pour revenir au point de départ
+
+        Args:
+            start_lat: Latitude de départ
+            start_lon: Longitude de départ
+            total_distance: Distance totale cible (en km)
+            initial_bearing: Direction initiale en degrés
+            request: Paramètres de la requête
+
+        Returns:
+            Liste de coordonnées ou None
+        """
+        target_total_distance = total_distance
+        tolerance = target_total_distance * 0.02  # ±2%
+        max_iterations = 10
+
+        # Facteur initial pour les segments de boucle
+        adjustment_factor = 0.80  # Commencer à 80% car les routes réelles sont plus longues
+
+        best_route = None
+        best_distance_diff = float('inf')
+
+        for iteration in range(max_iterations):
+            # Créer 3 points intermédiaires pour former une boucle
+            segment_distance = (total_distance * adjustment_factor) / 3
+
+            # Point 1: direction initiale
+            bearing1 = initial_bearing
+            point1_lat, point1_lon = destination_point(start_lat, start_lon, segment_distance, bearing1)
+
+            # Point 2: 120° plus loin (pour former un triangle)
+            bearing2 = (initial_bearing + 120) % 360
+            point2_lat, point2_lon = destination_point(point1_lat, point1_lon, segment_distance, bearing2)
+
+            # Point 3: encore 120° pour revenir vers le départ
+            bearing3 = (initial_bearing + 240) % 360
+            point3_lat, point3_lon = destination_point(point2_lat, point2_lon, segment_distance, bearing3)
+
+            # Obtenir les profils de routing
+            profile = self._get_routing_profile(request)
+
+            # Segment 1: départ -> point1
+            seg1 = await self._get_osrm_route(start_lat, start_lon, point1_lat, point1_lon, profile)
+            if not seg1:
+                continue
+
+            # Segment 2: point1 -> point2
+            seg2 = await self._get_osrm_route(point1_lat, point1_lon, point2_lat, point2_lon, profile)
+            if not seg2:
+                continue
+
+            # Segment 3: point2 -> point3
+            seg3 = await self._get_osrm_route(point2_lat, point2_lon, point3_lat, point3_lon, profile)
+            if not seg3:
+                continue
+
+            # Segment 4: point3 -> retour au départ
+            seg4 = await self._get_osrm_route(point3_lat, point3_lon, start_lat, start_lon, profile)
+            if not seg4:
+                continue
+
+            # Combiner tous les segments en évitant les doublons
+            full_route = seg1 + seg2[1:] + seg3[1:] + seg4[1:]
+
+            # Calculer la distance réelle
+            actual_distance = calculate_total_distance(full_route)
+            distance_diff = abs(actual_distance - target_total_distance)
+
+            # Vérifier que la boucle se ferme bien (tolérance 50m)
+            final_point = full_route[-1]
+            distance_to_start = haversine_distance(
+                start_lat, start_lon, final_point[0], final_point[1]
+            )
+
+            # Logger
+            logger.info(f"[Loop {initial_bearing}°] Iteration {iteration + 1}: factor={adjustment_factor:.3f}, "
+                       f"target={target_total_distance:.2f}km, actual={actual_distance:.2f}km, "
+                       f"diff={distance_diff:.2f}km, closure={distance_to_start*1000:.0f}m")
+
+            # Pénalité si la boucle ne se ferme pas bien
+            if distance_to_start > 0.05:  # Plus de 50m d'écart
+                logger.warning(f"[Loop {initial_bearing}°] Boucle mal fermée: {distance_to_start*1000:.0f}m")
+                # On continue quand même mais avec une pénalité
+                distance_diff += distance_to_start * 10  # Pénalité
+
+            # Garder la meilleure route
+            if distance_diff < best_distance_diff:
+                best_distance_diff = distance_diff
+                best_route = full_route
+
+            # Vérifier si on est dans la tolérance
+            if distance_diff <= tolerance and distance_to_start <= 0.05:
+                logger.info(f"OK [Loop {initial_bearing}°] Boucle cible atteinte en {iteration + 1} iteration(s)")
+                return full_route
+
+            # Ajuster le facteur
+            if actual_distance > target_total_distance:
+                adjustment_factor *= 0.95
+            else:
+                adjustment_factor *= 1.05
+
+            adjustment_factor = max(0.5, min(1.2, adjustment_factor))
+
+        # Retourner la meilleure route trouvée
+        if best_route:
+            logger.warning(f"WARNING [Loop {initial_bearing}°] Boucle cible non atteinte apres {max_iterations} iterations. "
+                          f"Meilleur resultat: ecart de {best_distance_diff:.2f}km")
+            return best_route
+
+        return None
+
     async def _generate_out_and_back_route(
         self,
         start_lat: float,
@@ -88,7 +228,7 @@ class RouteGenerator:
         request: RouteRequest
     ) -> Optional[List[Tuple[float, float]]]:
         """
-        Génère un parcours aller-retour dans une direction donnée
+        Génère un parcours aller-retour dans une direction donnée avec ajustement de distance
 
         Args:
             start_lat: Latitude de départ
@@ -100,27 +240,79 @@ class RouteGenerator:
         Returns:
             Liste de coordonnées ou None
         """
-        # Calculer le point de destination
-        dest_lat, dest_lon = destination_point(start_lat, start_lon, one_way_distance, bearing)
+        # Algorithme itératif pour atteindre la distance cible avec précision ±2%
+        target_total_distance = request.distance_km
+        tolerance = target_total_distance * 0.02  # ±2%
+        max_iterations = 10
 
-        # Construire les profils de routing selon les préférences
-        profile = self._get_routing_profile(request)
+        # Facteur initial : commencer avec 85% de la distance demandée
+        # (car les routes réelles sont plus longues que la ligne droite)
+        adjustment_factor = 0.85
 
-        # Appeler OSRM pour l'aller
-        outbound_coords = await self._get_osrm_route(
-            start_lat, start_lon, dest_lat, dest_lon, profile
-        )
+        best_route = None
+        best_distance_diff = float('inf')
 
-        if not outbound_coords:
-            return None
+        for iteration in range(max_iterations):
+            # Calculer la distance ajustée pour cet essai
+            adjusted_one_way = one_way_distance * adjustment_factor
 
-        # Pour le retour, inverser le trajet
-        inbound_coords = list(reversed(outbound_coords))
+            # Calculer le point de destination
+            dest_lat, dest_lon = destination_point(start_lat, start_lon, adjusted_one_way, bearing)
 
-        # Combiner aller + retour
-        full_route = outbound_coords + inbound_coords[1:]  # Éviter de dupliquer le point de retournement
+            # Construire les profils de routing selon les préférences
+            profile = self._get_routing_profile(request)
 
-        return full_route
+            # Appeler OSRM pour l'aller
+            outbound_coords = await self._get_osrm_route(
+                start_lat, start_lon, dest_lat, dest_lon, profile
+            )
+
+            if not outbound_coords:
+                continue
+
+            # Pour le retour, inverser le trajet
+            inbound_coords = list(reversed(outbound_coords))
+
+            # Combiner aller + retour
+            full_route = outbound_coords + inbound_coords[1:]  # Éviter de dupliquer le point de retournement
+
+            # Calculer la distance réelle du parcours complet
+            actual_distance = calculate_total_distance(full_route)
+            distance_diff = abs(actual_distance - target_total_distance)
+
+            # Logger pour debugging
+            logger.info(f"[Bearing {bearing}°] Iteration {iteration + 1}: factor={adjustment_factor:.3f}, "
+                       f"target={target_total_distance:.2f}km, actual={actual_distance:.2f}km, "
+                       f"diff={distance_diff:.2f}km")
+
+            # Garder la meilleure route trouvée
+            if distance_diff < best_distance_diff:
+                best_distance_diff = distance_diff
+                best_route = full_route
+
+            # Vérifier si on est dans la tolérance
+            if distance_diff <= tolerance:
+                logger.info(f"OK [Bearing {bearing}°] Distance cible atteinte en {iteration + 1} iteration(s)")
+                return full_route
+
+            # Ajuster le facteur pour la prochaine itération
+            if actual_distance > target_total_distance:
+                # Route trop longue, réduire la distance
+                adjustment_factor *= 0.95
+            else:
+                # Route trop courte, augmenter la distance
+                adjustment_factor *= 1.05
+
+            # Sécurité : ne pas dépasser des valeurs extrêmes
+            adjustment_factor = max(0.5, min(1.2, adjustment_factor))
+
+        # Si on n'a pas atteint la tolérance, retourner la meilleure route trouvée
+        if best_route:
+            logger.warning(f"WARNING [Bearing {bearing}°] Distance cible non atteinte apres {max_iterations} iterations. "
+                          f"Meilleur resultat: ecart de {best_distance_diff:.2f}km")
+            return best_route
+
+        return None
 
     async def _generate_simple_route(
         self,

@@ -18,14 +18,55 @@ class ElevationPreference(str, Enum):
     MONTAGNEUX = "montagneux"
 
 
+class RouteType(str, Enum):
+    """Type de parcours"""
+    LOOP = "loop"  # Boucle
+    OUT_AND_BACK = "out_and_back"  # Aller-retour
+    BOTH = "both"  # Proposer les deux options
+
+
+class SurfacePreferences(BaseModel):
+    """Préférences de type de surface"""
+    # Types de routes
+    highway: bool = Field(default=False, description="Route principale/autoroute")
+    primary: bool = Field(default=True, description="Route primaire")
+    secondary: bool = Field(default=True, description="Route secondaire")
+    residential: bool = Field(default=True, description="Rue résidentielle")
+
+    # Chemins et pistes
+    cycleway: bool = Field(default=True, description="Piste cyclable")
+    footway: bool = Field(default=True, description="Chemin piéton")
+    path: bool = Field(default=True, description="Sentier")
+    track: bool = Field(default=True, description="Chemin carrossable")
+
+    # Sentiers naturels
+    trail: bool = Field(default=False, description="Sentier de randonnée")
+    bridleway: bool = Field(default=False, description="Chemin équestre")
+
+
+class SurfaceTypes(BaseModel):
+    """Types de revêtement de surface"""
+    paved: bool = Field(default=True, description="Goudron/béton")
+    gravel: bool = Field(default=False, description="Gravier")
+    dirt: bool = Field(default=False, description="Terre")
+    grass: bool = Field(default=False, description="Herbe")
+
+
 class RouteRequest(BaseModel):
     """Requête de génération de parcours"""
     start_location: str = Field(..., description="Adresse ou coordonnées GPS du point de départ")
     distance_km: float = Field(..., gt=0, le=100, description="Distance cible en kilomètres (max 100km)")
     training_type: TrainingType = Field(default=TrainingType.ENDURANCE, description="Type d'entraînement")
     elevation_preference: ElevationPreference = Field(default=ElevationPreference.PLAT, description="Préférence de dénivelé")
+
+    # Options de base (rétrocompatibilité)
     avoid_busy_roads: bool = Field(default=True, description="Éviter les routes passantes")
     prefer_parks: bool = Field(default=True, description="Privilégier les parcs et sentiers")
+
+    # Nouvelles options avancées
+    route_type: RouteType = Field(default=RouteType.OUT_AND_BACK, description="Type de parcours (boucle ou aller-retour)")
+    surface_preferences: Optional[SurfacePreferences] = Field(default=None, description="Préférences détaillées de type de route")
+    surface_types: Optional[SurfaceTypes] = Field(default=None, description="Préférences de revêtement de surface")
 
     class Config:
         json_schema_extra = {
@@ -35,7 +76,26 @@ class RouteRequest(BaseModel):
                 "training_type": "endurance",
                 "elevation_preference": "plat",
                 "avoid_busy_roads": True,
-                "prefer_parks": True
+                "prefer_parks": True,
+                "route_type": "loop",
+                "surface_preferences": {
+                    "highway": False,
+                    "primary": True,
+                    "secondary": True,
+                    "residential": True,
+                    "cycleway": True,
+                    "footway": True,
+                    "path": True,
+                    "track": True,
+                    "trail": False,
+                    "bridleway": False
+                },
+                "surface_types": {
+                    "paved": True,
+                    "gravel": False,
+                    "dirt": False,
+                    "grass": False
+                }
             }
         }
 
